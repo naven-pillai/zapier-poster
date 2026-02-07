@@ -1,5 +1,8 @@
-import 'dotenv/config';
-import { createClient } from '@supabase/supabase-js';
+require('dotenv').config();
+const { createClient } = require('@supabase/supabase-js');
+
+// Optional: only needed if you're on Node <18
+// const fetch = require('node-fetch');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -11,19 +14,22 @@ const ZAPIER_WEBHOOK_URL = process.env.ZAPIER_WEBHOOK_URL;
 async function sendToZapier(job) {
   const payload = {
     job_title: job.title,
-    company_name: job.company_name ?? 'Unknown Company',
-    job_location: job.job_location ?? 'Remote',
-    apply_url: job.apply_url,
+    company_name: job.company?.name ?? 'Unknown Company',
+    job_location: job.job_location?.[0] ?? 'Remote',
+    job_url: `https://kerja-remote.com/jobs/${job.slug}`,
   };
+
+  console.log('📤 Sending to Zapier:', payload);
 
   try {
     const res = await fetch(ZAPIER_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload)
     });
 
     const responseText = await res.text();
+
     if (!res.ok) {
       console.error(`❌ Zapier Error (${res.status}):`, responseText);
       return false;
@@ -39,22 +45,26 @@ async function sendToZapier(job) {
 
 async function main() {
   const now = new Date().toISOString();
-  console.log(`🔁 Running Zapier cron at ${now}`);
+  console.log(`🔁 Cron started at ${now}`);
 
   const { data: jobs, error } = await supabase
     .from('jobs')
     .select(`
       id,
+      slug,
       title,
-      company_name,
       job_location,
       apply_url,
       goes_public_at,
-      zapier_posted
+      zapier_posted,
+      company:companies (
+        name
+      )
     `)
     .eq('status', 'published')
     .eq('zapier_posted', false)
-    .lte('goes_public_at', now);
+    .lte('goes_public_at', now)
+    .limit(5); // optional: limit to 5 for safety
 
   if (error) {
     console.error('❌ Supabase fetch error:', error.message);
@@ -62,12 +72,11 @@ async function main() {
   }
 
   if (!jobs?.length) {
-    console.log('🟡 No new jobs to post');
+    console.log('🟡 No new jobs to send');
     return;
   }
 
   for (const job of jobs) {
-    console.log(`📤 Sending job ID ${job.id}: ${job.title}`);
     const success = await sendToZapier(job);
     if (success) {
       const { error: updateError } = await supabase
