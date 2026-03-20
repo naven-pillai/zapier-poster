@@ -64,7 +64,8 @@ async function main() {
     .eq('status', 'published')
     .eq('zapier_posted', false)
     .lte('goes_public_at', now)
-    .limit(5); // optional: limit to 5 for safety
+    .order('goes_public_at', { ascending: true })
+    .limit(1); // One job per cron run — cron interval controls spacing (set to 10–15 min)
 
   if (error) {
     console.error('❌ Supabase fetch error:', error.message);
